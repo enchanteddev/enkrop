@@ -79,3 +79,75 @@ class App(customtkinter.CTk):
 
         self.nearby_people = Nearby(self, {})
         self.nearby_people.grid(row = 4, sticky = "nsew")
+        
+        
+    def select_file(self):
+        self.file = customtkinter.filedialog.askopenfilename()
+        self.turn_on_nearby()
+    
+    def turn_on_nearby(self):
+        if self.client is not None: return
+        if self.file is not None and self.password.get() != "":
+            self.nearby_text.set("Looking For People Nearby")
+            self.client = faucet.Client()
+            self.nearby_search()
+        elif self.password.get() == "":
+            self.nearby_text.set("Set Password to see nearby people")
+
+    def nearby_search(self):
+        if not self.sending:
+            self.nearby_people.draw(self.client.find_host()) # type: ignore
+        self.after(1000, self.nearby_search)
+
+    def send_file(self, ip: str):
+        if self.client is None or self.file is None: return
+
+        self.client.connect(ip)
+        self.client.send_handshake(self.file, self.password.get())
+        self.f = open(self.file, 'rb')
+        self.send_p()
+        self.sending = True
+        # self.client.close()
+
+    def send_p(self):
+        if self.client is None: return
+        if self.client.send_packet(self.f, self.password.get()):
+            self.after(1, self.send_p)
+        
+    def recieve(self):
+        self.server = faucet.Server(self.username.get(), self.password.get())
+        self.nearby_text.set("Recieving")
+        self.rbc()
+
+    def recieve_file(self, cs):
+        if self.server is None: return
+        print("ho")
+
+        self.file,fsize = self.server.recieve_handshake(cs)
+        f = open(self.file, "wb")
+        self.rec_p(f, cs, fsize)
+
+    def rec_p(self, f, cs, fsize):
+        self.recieving = True
+        res = self.server.recieve_file(f, self.password.get(), cs)
+        if res:
+            self.nearby_text.set(f"{self.file}: {self.progress/(1024 ** 2):.2f}MB of {fsize/(1024 ** 2):.2f}MB transferred")
+            self.progress += res
+            self.after(1, lambda : self.rec_p(f, cs, fsize))
+    
+    def rbc(self):
+        if self.server is None: return
+        if not self.recieving:
+            print("BROAD")
+            self.server.bc.broadcast()
+            try:
+                client_socket, address = self.server.server.accept()
+                print(f"[+] {address} is connected.")
+                self.recieve_file(client_socket)
+            except TimeoutError:
+                pass
+        self.after(3000, self.rbc)
+
+app = App()
+app.mainloop()
+app.server.close() # type: ignore
